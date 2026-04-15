@@ -1,0 +1,89 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten
+from tensorflow.keras.utils import to_categorical
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+
+# 1. Загрузка набора данных MNIST
+(X_train, y_train), (X_test, y_test) = mnist.load_data()
+
+print("Розмір навчальної вибірки:", X_train.shape)
+print("Розмір тестової вибірки:", X_test.shape)
+
+# 2. Нормалізація значень пікселів
+X_train = X_train.astype("float32") / 255.0
+X_test = X_test.astype("float32") / 255.0
+
+# 3. Перетворення міток у формат one-hot
+y_train_cat = to_categorical(y_train, 10)
+y_test_cat = to_categorical(y_test, 10)
+
+# 4. Виведення кількох прикладів з набору даних
+plt.figure(figsize=(10, 4))
+for i in range(10):
+    plt.subplot(2, 5, i + 1)
+    plt.imshow(X_train[i], cmap="gray")
+    plt.title(f"Цифра: {y_train[i]}")
+    plt.axis("off")
+plt.tight_layout()
+plt.show()
+
+# 5. Побудова нейронної мережі
+model = Sequential([
+    Flatten(input_shape=(28, 28)),
+    Dense(128, activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(10, activation='softmax')
+])
+
+# 6. Компіляція моделі
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# 7. Навчання моделі
+history = model.fit(
+    X_train,
+    y_train_cat,
+    epochs=5,
+    batch_size=32,
+    validation_split=0.1
+)
+
+# 8. Оцінка якості на тестових даних
+test_loss, test_acc = model.evaluate(X_test, y_test_cat, verbose=0)
+print(f"\nТочність на тестовій вибірці: {test_acc:.4f}")
+print(f"Функція втрат на тестовій вибірці: {test_loss:.4f}")
+
+# 9. Прогнозування
+y_pred_probs = model.predict(X_test)
+y_pred = np.argmax(y_pred_probs, axis=1)
+
+# 10. Текстовий звіт по класифікації
+print("\nЗвіт класифікації:")
+print(classification_report(y_test, y_pred))
+
+# 11. Матриця помилок
+cm = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel("Передбачений клас")
+plt.ylabel("Справжній клас")
+plt.title("Матриця помилок")
+plt.show()
+
+# 12. Показ кількох прогнозів
+plt.figure(figsize=(12, 6))
+for i in range(15):
+    plt.subplot(3, 5, i + 1)
+    plt.imshow(X_test[i], cmap="gray")
+    plt.title(f"True: {y_test[i]}, Pred: {y_pred[i]}")
+    plt.axis("off")
+plt.tight_layout()
+plt.show()
