@@ -1,0 +1,146 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Input
+from tensorflow.keras.utils import to_categorical
+from sklearn.metrics import classification_report, confusion_matrix
+from scipy.ndimage import rotate
+import seaborn as sns
+
+# Функція повороту зображень
+def rotate_images(images, angle):
+    rotated = np.array([
+        rotate(img, angle=angle, reshape=False, mode='nearest')
+        for img in images
+    ])
+    rotated = np.clip(rotated, 0.0, 1.0)
+    return rotated
+
+# Функція додавання гаусового шуму
+def add_noise(images, noise_factor=0.25):
+    noise = noise_factor * np.random.randn(*images.shape)
+    noisy_images = images + noise
+    noisy_images = np.clip(noisy_images, 0.0, 1.0)
+    return noisy_images
+
+# Завантаження набору даних MNIST
+(X_train, y_train), (X_test, y_test) = mnist.load_data()
+
+print("Розмір навчальної вибірки:", X_train.shape)
+print("Розмір тестової вибірки:", X_test.shape)
+
+# Нормалізація значень пікселів
+X_train = X_train.astype("float32") / 255.0
+X_test = X_test.astype("float32") / 255.0
+
+# Параметри спотворення
+rotation_angle = 50
+noise_factor = 0.50
+
+# Поворот зображень
+X_train_rotated = rotate_images(X_train, rotation_angle)
+X_test_rotated = rotate_images(X_test, rotation_angle)
+
+# Додавання шуму до повернутих зображень
+X_train_distorted = add_noise(X_train_rotated, noise_factor)
+X_test_distorted = add_noise(X_test_rotated, noise_factor)
+
+# Перетворення міток у формат one-hot
+y_train_cat = to_categorical(y_train, 10)
+y_test_cat = to_categorical(y_test, 10)
+
+# Відображення прикладів спотворених зображень
+plt.figure(figsize=(10, 4))
+for i in range(10):
+    plt.subplot(2, 5, i + 1)
+    plt.imshow(X_train_distorted[i], cmap="gray")
+    plt.title(f"Цифра: {y_train[i]}")
+    plt.axis("off")
+plt.tight_layout()
+plt.show()
+
+# Побудова нейронної мережі
+model = Sequential([
+    Input(shape=(28, 28)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(10, activation='softmax')
+])
+
+# Компіляція моделі
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# Навчання моделі на спотворених даних
+history = model.fit(
+    X_train_distorted,
+    y_train_cat,
+    epochs=5,
+    batch_size=32,
+    validation_split=0.1,
+    verbose=1
+)
+
+# Оцінка якості на спотвореній тестовій вибірці
+test_loss, test_acc = model.evaluate(X_test_distorted, y_test_cat, verbose=0)
+print(f"\nТочність на спотвореній тестовій вибірці: {test_acc:.4f}")
+print(f"Функція втрат: {test_loss:.4f}")
+
+# Прогнозування
+y_pred_probs = model.predict(X_test_distorted)
+y_pred = np.argmax(y_pred_probs, axis=1)
+
+# Звіт класифікації
+print("\nЗвіт класифікації:")
+print(classification_report(y_test, y_pred))
+
+# Матриця помилок
+cm = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel("Передбачений клас")
+plt.ylabel("Справжній клас")
+plt.title("Матриця помилок")
+plt.show()
+
+# Відображення прикладів прогнозів
+plt.figure(figsize=(12, 6))
+for i in range(15):
+    plt.subplot(3, 5, i + 1)
+    plt.imshow(X_test_distorted[i], cmap="gray")
+    plt.title(f"True: {y_test[i]}, Pred: {y_pred[i]}")
+    plt.axis("off")
+plt.tight_layout()
+plt.show()
+
+# Перевірка одного зображення
+sample_index = 0
+sample_image = X_test[sample_index]
+sample_label = y_test[sample_index]
+
+sample_rotated = rotate(sample_image, angle=rotation_angle, reshape=False, mode='nearest')
+sample_rotated = np.clip(sample_rotated, 0.0, 1.0)
+sample_distorted = add_noise(np.expand_dims(sample_rotated, axis=0), noise_factor)
+
+sample_prediction_probs = model.predict(sample_distorted)
+sample_prediction = np.argmax(sample_prediction_probs, axis=1)[0]
+sample_confidence = np.max(sample_prediction_probs)
+
+plt.imshow(sample_distorted[0], cmap="gray")
+plt.title(f"True: {sample_label}, Pred: {sample_prediction}")
+plt.axis("off")
+plt.show()
+
+print("Справжній клас:", sample_label)
+print("Передбачений клас:", sample_prediction)
+print("Впевненість:", round(float(sample_confidence), 4))
+
+print("\nЙмовірності:")
+for i, prob in enumerate(sample_prediction_probs[0]):
+    print(f"{i}: {prob:.4f}")
