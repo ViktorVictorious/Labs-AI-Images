@@ -1,0 +1,109 @@
+!pip install -q opencv-python opencv-contrib-python
+
+import cv2
+import numpy as np
+from google.colab import files
+from google.colab.patches import cv2_imshow
+
+def stitch(img1, img2, show_matches=False):
+    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+    sift = cv2.SIFT_create()
+
+    kp1, des1 = sift.detectAndCompute(gray1, None)
+    kp2, des2 = sift.detectAndCompute(gray2, None)
+
+    if des1 is None or des2 is None:
+        raise Exception("Не вдалося знайти ключові точки на одному із зображень")
+
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(des1, des2, k=2)
+
+    good = []
+    for pair in matches:
+        if len(pair) == 2:
+            m, n = pair
+            if m.distance < 0.75 * n.distance:
+                good.append(m)
+
+    if len(good) < 4:
+        raise Exception("Недостатньо точок для RANSAC")
+
+    pts1 = np.float32([kp1[m.queryIdx].pt for m in good])
+    pts2 = np.float32([kp2[m.trainIdx].pt for m in good])
+
+    H, mask = cv2.findHomography(pts2, pts1, cv2.RANSAC, 5.0)
+
+    if H is None:
+        raise Exception("Не вдалося знайти гомографію")
+
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+
+    result = cv2.warpPerspective(img2, H, (w1 + w2, max(h1, h2)))
+    result[0:h1, 0:w1] = img1
+
+    match_img = None
+    if show_matches:
+        matchesMask = mask.ravel().tolist()
+
+        draw_params = dict(
+            matchColor=(0, 255, 0),
+            singlePointColor=None,
+            matchesMask=matchesMask,
+            flags=2
+        )
+
+        match_img = cv2.drawMatches(
+            img1, kp1,
+            img2, kp2,
+            good, None,
+            **draw_params
+        )
+
+    return result, match_img
+
+def create_panorama(image_list):
+    result = image_list[0]
+    match_visualizations = []
+
+    for i in range(1, len(image_list)):
+        print(f"Stitching image {i+1}...")
+        result, match_img = stitch(result, image_list[i], show_matches=True)
+
+        if match_img is not None:
+            match_visualizations.append(match_img)
+
+    return result, match_visualizations
+
+uploaded = files.upload()
+
+image_names = list(uploaded.keys())
+
+if len(image_names) < 2:
+    raise Exception("Завантаж щонайменше 2 зображення")
+
+img1 = cv2.imread(image_names[0])
+img2 = cv2.imread(image_names[1])
+
+if img1 is None or img2 is None:
+    raise Exception("Одне зображення не вдалося прочитати")
+
+images = [img1, img2]
+
+panorama, matches_list = create_panorama(images)
+
+cv2.imwrite("panorama.jpg", panorama)
+
+print("Panorama:")
+cv2_imshow(panorama)
+
+for i, match_img in enumerate(matches_list):
+    print(f"Matches {i+1}:")
+    cv2_imshow(match_img)
+    cv2.imwrite(f"matches_{i+1}.jpg", match_img)
+
+files.download("panorama.jpg")
+for i in range(len(matches_list)):
+    files.download(f"matches_{i+1}.jpg")
